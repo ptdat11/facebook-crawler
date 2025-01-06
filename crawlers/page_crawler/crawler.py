@@ -267,9 +267,13 @@ class Crawler(BaseCrawler):
 
         post_datetime_a = profile_div.find_element(By.XPATH, "(../../../div)[2]//a")
         self.scroll_into_view(post_datetime_a, point_cursor=True, sleep=0.5)
-        post_id = parse_qs(urlparse(post_datetime_a.get_attribute("href")).query)[
-            "story_fbid"
-        ][0]
+
+        post_raw_url = post_datetime_a.get_attribute("href")
+        if "videos" in post_raw_url:
+            post_id = re.search(r"videos/(\d+)", post_raw_url).group(1)
+        else:
+            post_id = parse_qs(urlparse(post_raw_url).query)["story_fbid"][0]
+
         post_link = f"https://www.facebook.com/{post_id}"
         # post_link = (
         #     re.search(
