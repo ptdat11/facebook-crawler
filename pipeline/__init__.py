@@ -1,6 +1,7 @@
 from .as_csv import SaveAsCSV
 from .as_excel import SaveAsExcel
 from .save_imgs import SaveImages
+from .save_vids import SaveVideos
 from .handle_hrefs import HandleHrefs
 from .base_step import BaseStep
 from pandas import DataFrame

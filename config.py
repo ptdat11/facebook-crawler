@@ -1,10 +1,11 @@
 from utils import LinkExtractor
-from pipeline import Pipeline, SaveAsCSV, SaveImages, HandleHrefs
+from pipeline import Pipeline, SaveAsCSV, SaveImages, SaveVideos, HandleHrefs
 from datetime import datetime
 
 PIPELINE = Pipeline(
     HandleHrefs(action="keep_content"),
     SaveImages(save_dir="{crawler_dir}/{page_id}/imgs", img_url_col="img_urls"),
+    SaveVideos(save_dir="{crawler_dir}/{page_id}/vids", vid_url_col="video_urls", audio_url_col="video_audio_urls"),
     SaveAsCSV(dst_dir="{crawler_dir}/{page_id}"),
 )
 
@@ -16,7 +17,7 @@ PARSE_LINK_EXTRACTOR = LinkExtractor(
 
 CRAWLER_ARGUMENTS = {
     "page_crawler": dict(
-        page_id=100064250406170,
+        page_id="vienthammytuanlinh",
         # post_collect_criterion="post_time",  # ["elapsed_minutes", "n_posts", "post_time"]
         # post_collect_threshold=datetime(year=2024, month=9, day=1),
         post_collect_criterion="n_posts",

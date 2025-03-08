@@ -5,6 +5,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.webelement import WebElement
 
+import urllib.parse
 import bs4
 import time
 
@@ -45,6 +46,15 @@ def login(driver: Chrome, username: str, password: str):
     WebDriverWait(driver, timeout=10).until(
         EC.presence_of_element_located((By.ID, "facebook"))
     )
+
+
+def unicode_escape_url(url: str):
+    """
+    Example: `https:\/\/scontent.fsgn5-9.fna.fbcdn.net\/o1\/v\/t2\/f2\/m366\/AQOwqM2sgT0_ryPOz\u00253D\u00253D` -> `https://scontent.fsgn5-9.fna.fbcdn.net/o1/v/t2/f2/m366/AQOwqM2sgT0_ryPO%3D%3D`
+    """
+    decoded_url = url.replace(r"\/", "/").encode().decode('unicode_escape')
+    final_url = urllib.parse.unquote(decoded_url)
+    return final_url
 
 
 def ordinal(n: int):

@@ -2,7 +2,6 @@ from typing import Any, Sequence
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver import Chrome
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 import re
@@ -12,7 +11,7 @@ import bs4
 from pathlib import Path
 from ..base_crawler import BaseCrawler
 from EC import more_items_loaded
-from utils.parsing import parse_post_date, parse_text_from_element
+from utils.parsing import parse_post_date, parse_text_from_element, get_video_url_from_source
 from utils.utils import to_bs4, ordinal
 from utils.colors import *
 
@@ -63,7 +62,7 @@ class Crawler(BaseCrawler):
                     f"(({Crawler.posts_xpath})[last()]//h2/../../../../div)[2]//a",
                 )
                 self.action.move_to_element(last_post_datetime_a).perform()
-                WebDriverWait(driver, 10).until(
+                self.wait.until(
                     EC.presence_of_element_located(
                         (
                             By.XPATH,
@@ -131,7 +130,7 @@ class Crawler(BaseCrawler):
                 self.chrome.execute_script(
                     "window.scrollTo(0, document.body.scrollHeight)"
                 )
-                WebDriverWait(self.chrome, self.max_loading_wait).until(
+                self.wait.until(
                     more_items_loaded(
                         posts_locator=(By.XPATH, Crawler.posts_xpath),
                         current_count=len(self.get_loaded_posts()),
@@ -143,31 +142,16 @@ class Crawler(BaseCrawler):
                     self.get_loaded_posts(start=n_scraped_posts + 1, stop=-1),
                     start=n_scraped_posts + 1,
                 ):
-                    self.scroll_into_view(post_div, point_cursor=False, sleep=1)
+                    self.scroll_into_view(post_div, sleep=1)
                     # Check if story
-                    # profile_div = to_bs4(
-                    #     self.chrome.find_element(
-                    #         By.XPATH,
-                    #         f"({Crawler.posts_xpath})[{i}]",
-                    #     )
-                    # )
-                    # if (
-                    #     len(profile_div.find_all("a")) > 0
-                    #     and "aria-label" in profile_div.find("a").attrs
-                    # ):
-                    #     self.logger.info(
-                    #         f"Found {ordinal(i)} post as story, skipping..."
-                    #     )
-                    #     continue
                     if to_bs4(post_div).find("a")["href"].startswith("/reel"):
+                        self.logger.info(f"Found {ordinal(i)} post as reel, skipping...")
                         continue
                     # Check if update avatar
                     if to_bs4(post_div).find(
                         "img", {"data-imgperflogname": "feedCoverPhoto"}
                     ):
-                        self.logger.info(
-                            f"Found {ordinal(i)} post as avatar, skipping..."
-                        )
+                        self.logger.info(f"Found {ordinal(i)} post as avatar, skipping...")
                         continue
 
                     try:
@@ -196,7 +180,7 @@ class Crawler(BaseCrawler):
             "//div[@class='x9f619 x1ja2u2z x1xzczws x7wzq59']",
         ]:
             to_be_removed = self.chrome.find_element(By.XPATH, rm_xpath)
-            self.chrome.execute_script("arguments[0].remove();", to_be_removed)
+            self.remove_element(to_be_removed)
 
     def get_loaded_posts(self, start: int = 1, stop: int = -1):
         if stop < 0:
@@ -216,13 +200,13 @@ class Crawler(BaseCrawler):
             f"({Crawler.posts_xpath})[{i}]/descendant::div[@class='html-div xdj266r x11i5rnm xat24cr x1mh8g0r xexx8yu x4uap5 x18d9i69 xkhd6sd']",
         ).find_elements(By.XPATH, f"./div/div/div")
 
-        # Profile
+        # Get profile div
         profile_div = post_content_divs[1].find_element(
             By.XPATH,
             f"({Crawler.posts_xpath})[{i}]/descendant::div[@data-ad-rendering-role='profile_name']",
         )
 
-        # Content
+        # Get content (caption + image/video) div
         content_div = post_content_divs[2]
         num_content_modalities = 0
         for content in content_div.find_elements(By.XPATH, "div"):
@@ -247,8 +231,6 @@ class Crawler(BaseCrawler):
         else:
             visual_content_div = None
 
-        # Ensure date element appears
-
         # Ensure post's text content showing full version
         see_more_text = {"vi": "Xem thêm", "en": "See more"}
         if (
@@ -265,15 +247,15 @@ class Crawler(BaseCrawler):
                 0.5
             ).move_to_element(post_div).perform()
 
+        # Get post's datetime a element
         post_datetime_a = profile_div.find_element(By.XPATH, "(../../../div)[2]//a")
-        self.scroll_into_view(post_datetime_a, point_cursor=True, sleep=0.5)
+        self.scroll_into_view(post_datetime_a, sleep=0.5)
 
+        # Get post's raw URL
         post_raw_url = post_datetime_a.get_attribute("href")
-        if "videos" in post_raw_url:
-            post_id = re.search(r"videos/(\d+)", post_raw_url).group(1)
-        else:
-            post_id = parse_qs(urlparse(post_raw_url).query)["story_fbid"][0]
-
+        # Get post's ID
+        post_id = Path(urlparse(post_raw_url).path).name
+        # Get post's link
         post_link = f"https://www.facebook.com/{post_id}"
         # post_link = (
         #     re.search(
@@ -284,123 +266,149 @@ class Crawler(BaseCrawler):
         #     .strip("/?")
         # )
 
+        # Get post's caption
         caption = (
             parse_text_from_element(text_content_div)
             if text_content_div is not None
             else ""
         )
         caption = unescape(re.sub(r"href\(, [^\)]+\)", "", caption).strip())
-        visual_soup = (
-            to_bs4(visual_content_div) if visual_content_div is not None else None
-        )
-        is_post_image = (
+
+        # Get post's visual content
+        visual_urls = self.get_visual_content(visual_content_div)
+
+        return {
+            "post_url": post_link,
+            "caption": caption,
+            "img_urls": "   ".join(visual_urls["img_urls"]),
+            "video_urls": "   ".join(visual_urls["video_urls"]),
+            "video_audio_urls": "   ".join(visual_urls["video_audio_urls"]),
+            "crawl_time": datetime.now(),
+        }
+    
+    def get_visual_content_id(self, url: str, content_type: Literal["img", "video"]):
+        if content_type == "img":
+            return re.search(r"photo/?\?fbid=((\d)+)", url).group(1)
+        elif content_type == "video":
+            return re.search(r"(\d+)[^\d]*$", url).group(0)
+
+    def get_visual_content(self, visual_content_div: WebElement | None):
+        visual_urls = {"img_urls": [], "video_urls": [], "video_audio_urls": []}
+        if visual_content_div is None:
+            return visual_urls
+        # Get post's visual soup (BeautifulSoup object)
+        visual_soup = to_bs4(visual_content_div) if visual_content_div is not None else None
+        # Check first content's type
+        first_is_image = (
             visual_soup.find("img") is not None
             and "data-visualcompletion" not in visual_soup.find("img").parent.attrs
             if visual_soup is not None
             else False
         )
-        is_post_video = (
+        first_is_video = (
             visual_soup.find("div", {"role": "presentation"}) is not None
             if visual_soup is not None
             else False
         )
 
-        if is_post_image:
-            img_urls = self.get_image_urls(visual_content_div=visual_content_div)
-        else:
-            img_urls = []
+        first_content = visual_content_div.find_element(By.XPATH, ".//img")
+        # If the post has clickable telephone call
+        if first_is_image:
+            anchor = first_content.find_element(By.XPATH, "./ancestor::a")
+            self.scroll_into_view(anchor, sleep=0.1)
+            if to_bs4(anchor).find("a", {"href": re.compile(r"^tel")}):
+                img_url = first_content.get_attribute("src")
+                visual_urls["img_urls"].append(img_url)
+                return visual_urls
+        
+        # Else, click the first content to view all contents
+        if first_is_video:
+            # Double click
+            self.action.move_to_element(first_content).click(first_content).pause(2).perform()
+            updated_el = visual_content_div.find_element(By.XPATH, ".//div[@class='x1lliihq x5yr21d x1n2onr6 xh8yej3 x1ja2u2z']")
+            self.action.move_to_element(updated_el).click(updated_el).pause(2).perform()
+        elif first_is_image:
+            self.action.move_to_element(first_content).click(first_content).perform()
 
-        return {
-            "post_url": post_link,
-            "caption": caption,
-            "img_urls": "   ".join(img_urls),
-            "has_video": is_post_video,
-            "crawl_time": datetime.now(),
-        }
+        first_content_id = self.get_visual_content_id(self.chrome.current_url, "img" if first_is_image else "video")
 
-    def get_image_urls(self, visual_content_div: WebElement):
-        first_img = visual_content_div.find_element(By.XPATH, ".//img")
-        # If the post has clickable telephone
-        anchor = first_img.find_element(By.XPATH, "./ancestor::a")
-        self.scroll_into_view(anchor, point_cursor=True, sleep=0.1)
-        if to_bs4(anchor).find("a", {"href": re.compile(r"^tel")}):
-            return [first_img.get_attribute("src")]
-
-        # Else
-        self.action.move_to_element(first_img).click(first_img).perform()
-        WebDriverWait(self.chrome, self.max_loading_wait).until(
-            EC.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@class='__fb-{self.theme}-mode x1n2onr6 x1vjfegm']",
-                )
-            )
-        )
-
-        img_urls = []
-        first_img_id = re.search(
-            r"https://www\.facebook\.com/photo/?\?fbid=((\d)+)", self.chrome.current_url
-        ).group(1)
-
-        orig_post_url = self.chrome.find_element(
+        orig_post_id = self.chrome.find_element(
             By.XPATH,
-            "(//div[@class='x1cy8zhl x2bj2ny x78zum5 x1q0g3np']//div[@class='xu06os2 x1ok221b'])[last()]//a",
+            "(//div[@role='dialog'])[last()]//div[@class='xu06os2 x1ok221b'][last()]//a",
         )
-        self.action.move_to_element(orig_post_url).pause(0.1).perform()
-        orig_post_url = Path(urlparse(orig_post_url.get_attribute("href")).path).name
+        self.action.move_to_element(orig_post_id).pause(0.1).perform()
+        orig_post_id = self.chrome.find_element(
+            By.XPATH,
+            "(//div[@role='dialog'])[last()]//div[@class='xu06os2 x1ok221b'][last()]//a",
+        )
+        orig_post_id = Path(urlparse(orig_post_id.get_attribute("href")).path).name
 
         iter = 0
         while True:
-            post_url = self.chrome.find_element(
+            post_id = self.chrome.find_element(
                 By.XPATH,
-                "(//div[@class='x1cy8zhl x2bj2ny x78zum5 x1q0g3np']//div[@class='xu06os2 x1ok221b'])[last()]//a",
+                "(//div[@role='dialog'])[last()]//div[@class='xu06os2 x1ok221b'][last()]//a",
             )
-            self.action.move_to_element(post_url).pause(0.1).perform()
-            post_url = Path(urlparse(post_url.get_attribute("href")).path).name
+            self.action.move_to_element(post_id).pause(0.1).perform()
+            post_id = self.chrome.find_element(
+                By.XPATH,
+                "(//div[@role='dialog'])[last()]//div[@class='xu06os2 x1ok221b'][last()]//a",
+            )
+            post_id = Path(urlparse(post_id.get_attribute("href")).path).name
 
-            if iter > 0 and (img_id == first_img_id or orig_post_url != post_url):
-                close_text = {"vi": "Đóng", "en": "Close"}
-                close_btn = self.chrome.find_element(
-                    By.XPATH, f"//div[@aria-label='{close_text[self.language]}']"
-                )
-                self.action.click(close_btn).pause(0.2).perform()
+            # Check if came back to first content or jumped to other post
+            if iter > 0 and (content_id == first_content_id or orig_post_id != post_id):
+                self.exit_dialog()
                 break
-
-            img_el = self.chrome.find_element(
-                By.XPATH,
-                f"//img[@data-visualcompletion='media-vc-image']",
-            )
-            img_url = img_el.get_attribute("src")
-            # img_url = re.search(r"^.+\.jpg", img_url).group(0)
-            img_urls.append(img_url)
-
+            
+            is_video = self.page_source_soup().find("img", {"data-visualcompletion": "media-vc-image"}) is None
+            if is_video:
+                content_id = self.get_visual_content_id(self.chrome.current_url, "video")
+                self.chrome.delete_all_cookies()
+                current_tab = self.chrome.current_window_handle
+                self.new_tab(f"https://www.facebook.com/{content_id}")
+                self.wait_DOM()
+                video_result = get_video_url_from_source(self.chrome.page_source)
+                visual_urls["video_urls"].append(video_result["video_url"])
+                visual_urls["video_audio_urls"].append(video_result["audio_url"])
+                self.load_cookies()
+                self.chrome.close()
+                self.chrome.switch_to.window(current_tab)
+            else:
+                content_id = self.get_visual_content_id(self.chrome.current_url, "img")
+                img_el = self.chrome.find_element(By.XPATH, f"//img[@data-visualcompletion='media-vc-image']")
+                img_url = img_el.get_attribute("src")
+                visual_urls["img_urls"].append(img_url)
+            
+            # Move to next content, if there is any
             next_img_text = {"vi": "Ảnh tiếp theo", "en": "Next photo"}
-            next_img_btn = self.chrome.find_element(
-                By.XPATH,
-                f"//div[@aria-label='{next_img_text[self.language]}']",
-            )
+            next_btn_exist = self.page_source_soup().find("div", {"aria-label": next_img_text[self.language]}) is not None
+            self.logger.info(f"Next button exist: {next_btn_exist}")
+            if next_btn_exist:
+                next_img_btn = self.chrome.find_element(By.XPATH, f"//div[@aria-label='{next_img_text[self.language]}']")
+                self.action.move_to_element(next_img_btn)
 
-            self.action.move_to_element(next_img_btn)
-            if (
-                next_img_btn.find_element(By.XPATH, "./div").get_attribute("class")
-                == "x6s0dn4 x78zum5 x197sbye xyamay9 x1pi30zi x1l90r2v x1swvt13 x1n2onr6 x1k90msu x6o7n8i x9lcvmn x6my1t9 xiwuv7k"
-            ):
-                close_text = {"vi": "Đóng", "en": "Close"}
-                close_btn = self.chrome.find_element(
-                    By.XPATH, f"//div[@aria-label='{close_text[self.language]}']"
-                )
-                self.action.click(close_btn).pause(0.2).perform()
+                if (
+                    next_img_btn.find_element(By.XPATH, "./div").get_attribute("class")
+                    == "x6s0dn4 x78zum5 x197sbye xyamay9 x1pi30zi x1l90r2v x1swvt13 x1n2onr6 x1k90msu x6o7n8i x9lcvmn x6my1t9 xiwuv7k"
+                ):
+                    self.exit_dialog()
+                    break
+                self.action.click(next_img_btn).pause(3).perform()
+            # If no next image
+            else:
+                self.exit_dialog()
                 break
-
-            self.action.click(next_img_btn).pause(3).perform()
-            img_id = re.search(
-                r"https://www\.facebook\.com/photo/?\?fbid=((\d)+)",
-                self.chrome.current_url,
-            ).group(1)
 
             iter += 1
+        return visual_urls
 
-        return img_urls
+    def exit_dialog(self):
+        close_text = {"vi": "Đóng", "en": "Close"}
+        close_btn = self.chrome.find_element(
+            By.XPATH, f"//div[@aria-label='{close_text[self.language]}']"
+        )
+        self.action.click(close_btn).pause(0.2).perform()
 
     def start(self):
         super().start(start_url=f"https://www.facebook.com/{self.page_id}")

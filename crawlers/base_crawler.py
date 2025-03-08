@@ -4,6 +4,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.remote.remote_connection import LOGGER
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import NoSuchWindowException, WebDriverException
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver import ActionChains
 
 from utils import Logger, Progress, LinkExtractor, Cookies
@@ -15,12 +16,13 @@ import json
 import sys
 import time
 import logging
+from bs4 import BeautifulSoup
 from html import unescape
 from os.path import join
 from urllib.parse import urlparse
 from traceback import format_exc
 from scipy.stats import weibull_min
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 LOGGER.setLevel(logging.CRITICAL)
 
@@ -139,6 +141,7 @@ class BaseCrawler:
         self.main_tab = self.chrome.current_window_handle
         self.logger.info(f"Driver started")
         self.action = ActionChains(self.chrome)
+        self.wait = WebDriverWait(self.chrome, self.max_loading_wait)
 
     def save_cookies(self):
         self.cookies.save(self.chrome.get_cookies())
@@ -153,6 +156,34 @@ class BaseCrawler:
 
     def load_progress(self):
         self.progress.load()
+    
+    def scroll_into_view(
+        self,
+        element: WebElement,
+        offset: tuple | Literal["middle"] = "middle",
+        sleep: float = 0,
+    ):
+        self.chrome.execute_script("arguments[0].scrollIntoView(true);", element)
+        self.sleep(sleep)
+        if offset == "middle":
+            self.action.move_to_element(element).perform()
+        elif isinstance(offset, tuple):
+            print(offset[0], offset[1])
+            self.action.move_to_element_with_offset(
+                element, offset[0], offset[1]
+            ).perform()
+        
+    def click(
+        self,
+        element: WebElement,
+        offset: tuple | Literal["middle"] = "middle",
+        sleep: float = 0,
+    ):
+        self.scroll_into_view(element, offset=offset, sleep=sleep)
+        element.click()
+    
+    def remove_element(self, element: WebElement):
+        self.chrome.execute_script("arguments[0].remove();", element)
 
     def ensure_logged_in(self):
         self.logger.info("Ensuring user logging in")
@@ -284,6 +315,9 @@ class BaseCrawler:
 
         self.close_all_new_tabs()
 
+    def page_source_soup(self):
+        return BeautifulSoup(self.chrome.page_source, "lxml")
+
     def write_element(self, dst: str, element: WebElement):
         soup = to_bs4(element)
         try:
@@ -291,11 +325,3 @@ class BaseCrawler:
                 f.write(unescape(soup.__str__()))
         except:
             self.logger.error(f"Cannot write \n{soup}\n to {dst}")
-
-    def scroll_into_view(
-        self, element: WebElement, point_cursor: bool = True, sleep: float = 0
-    ):
-        self.chrome.execute_script("arguments[0].scrollIntoView(true);", element)
-        self.sleep(sleep)
-        if point_cursor:
-            self.action.move_to_element(element).perform()

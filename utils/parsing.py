@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 
 from typing import Literal
+from utils.utils import unicode_escape_url
 
 en_month_map = {
     "january": 1,
@@ -45,3 +46,14 @@ def parse_text_from_element(text_element: WebElement):
     text = re.sub(r"(?<=</div>)()(?=<div)", r"\n", text)
     text = re.sub(r"<.*?>", "", text)
     return text
+
+
+def get_video_url_from_source(source: str):
+    video_url = re.search(r'"base_url":"([^"]+)"', source).group(1)
+    video_url = unicode_escape_url(video_url)
+    audio_url = re.search(r'"audio\\/mp4","codecs":"[^"]+","base_url":"([^"]+)"', source).group(1)
+    audio_url = unicode_escape_url(audio_url)
+    return {
+        "video_url": video_url,
+        "audio_url": audio_url
+    }
