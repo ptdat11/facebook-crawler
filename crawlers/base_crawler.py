@@ -22,6 +22,7 @@ from os.path import join
 from urllib.parse import urlparse
 from traceback import format_exc
 from scipy.stats import weibull_min
+from contextlib import contextmanager
 from typing import Any, Iterable, Literal
 
 LOGGER.setLevel(logging.CRITICAL)
@@ -325,3 +326,17 @@ class BaseCrawler:
                 f.write(unescape(soup.__str__()))
         except:
             self.logger.error(f"Cannot write \n{soup}\n to {dst}")
+
+    @contextmanager
+    def new_tab_no_cookies(self, url: str):
+        self.chrome.delete_all_cookies()
+        current_tab = self.chrome.current_window_handle
+        self.new_tab(url)
+        self.wait_DOM()
+
+        try:
+            yield
+        finally:
+            self.load_cookies()
+            self.chrome.close()
+            self.chrome.switch_to.window(current_tab)

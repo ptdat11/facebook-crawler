@@ -16,18 +16,27 @@ class SaveVideos(BaseStep):
         save_dir: str,
         vid_url_col: str,
         audio_url_col: str,
+        id_col: str | None = None,
+        vid_save_dir_name: str = "vids",
     ) -> None:
         self.vid_url_col = vid_url_col
         self.audio_url_col = audio_url_col
         self.save_dir = FormatablePath(save_dir)
+        self.id_col = id_col
+        self.vid_save_dir_name = vid_save_dir_name
+
+        if id_col is None:
+            self.generated_id = 0
 
     def save_vid(self, vid_url: str, audio_url: str):
-        vid_name = Path(urlparse(vid_url).path).name
-        vid_path = join(self.save_dir, vid_name, "video.mp4")
-        audio_path = join(self.save_dir, vid_name, "audio.mp3")
+        vid_name = Path(urlparse(vid_url).path).name.strip(".mp4")
 
-        if not os.path.exists(join(self.save_dir, vid_name)):
-            os.makedirs(join(self.save_dir, vid_name), exist_ok=True)
+        vid_dir = join(self.save_dir, self.vid_save_dir_name, vid_name)
+        vid_path = join(vid_dir, "video.mp4")
+        audio_path = join(vid_dir, "audio.mp3")
+
+        if not os.path.exists(vid_dir):
+            os.makedirs(vid_dir, exist_ok=True)
 
         if not os.path.exists(vid_path):
             vid_data = requests.get(vid_url).content
@@ -48,14 +57,32 @@ class SaveVideos(BaseStep):
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir, exist_ok=True)
 
-        for row in df.itertuples():
-            vid_names = []
-            vids = getattr(row, self.vid_url_col).split()
-            audios = getattr(row, self.audio_url_col).split()
-            for i, (vid_url, audio_url) in enumerate(zip(vids, audios)):
-                vid_name = self.save_vid(vid_url, audio_url)
-                vid_names.append(vid_name)
+        # Create new DF for image data
+        copied_cols = [self.id_col, self.vid_url_col, self.audio_url_col] if self.id_col is not None \
+                    else [self.vid_url_col, self.audio_url_col]
+        result_df = df[copied_cols].map(lambda v: {"": None}.get(v, v)).dropna(subset=[self.vid_url_col, self.audio_url_col])
+        if not result_df.empty:
+            result_df[[self.vid_url_col, self.audio_url_col]] = result_df[[self.vid_url_col, self.audio_url_col]].map(str.split)
+            result_df = result_df.explode([self.vid_url_col, self.audio_url_col], ignore_index=True)
+            # Download images on the fly
+            result_df["name"] = [
+                self.save_vid(vid_url, audio_url) 
+                for vid_url, audio_url in result_df[[self.vid_url_col, self.audio_url_col]].values
+            ]
+            if self.id_col is None:
+                result_df["id"] = range(self.generated_id, self.generated_id + result_df.shape[0])
+                self.generated_id += result_df.shape[0]
 
-            df.loc[row.Index, "video_names"] = "   ".join(vid_names)
+            # Save DF as CSV
+            os.makedirs(self.save_dir, exist_ok=True)
+            csv_path = os.path.join(self.save_dir, "vids.csv")
+            result_df.to_csv(
+                csv_path,
+                index=False,
+                mode="a",
+                header=not os.path.exists(csv_path),
+            )
 
+        df["has_videos"] = df[self.vid_url_col].notna() & (df[self.vid_url_col] != "")
+        df.drop(columns=[self.vid_url_col, self.audio_url_col], inplace=True)
         return df

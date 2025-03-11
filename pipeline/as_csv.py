@@ -9,21 +9,21 @@ from typing import Any
 
 
 class SaveAsCSV(BaseStep):
-    def __init__(self, dst_dir: str, **csv_kwargs) -> None:
-        self.dst_dir = FormatablePath(dst_dir)
-        self.dst_csv = FormatablePath(join(dst_dir, "data.csv"))
+    def __init__(self, save_dir: str, **csv_kwargs) -> None:
+        self.save_dir = FormatablePath(save_dir)
+        self.csv_path = FormatablePath(join(save_dir, "data.csv"))
         self.csv_kwargs = csv_kwargs
 
     def __call__(self, df: DataFrame) -> Any:
         if df.empty:
             return df
 
-        os.makedirs(self.dst_dir, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
         df.to_csv(
-            self.dst_csv,
+            self.csv_path,
             index=False,
             mode="a",
-            header=not os.path.exists(self.dst_csv),
+            header=not os.path.exists(self.csv_path),
             **self.csv_kwargs
         )
 

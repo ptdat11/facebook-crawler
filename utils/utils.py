@@ -8,6 +8,10 @@ from selenium.webdriver.remote.webelement import WebElement
 import urllib.parse
 import bs4
 import time
+import hashlib
+import sys
+from unittest.mock import patch
+from contextlib import contextmanager
 
 
 class FormatablePath(PathLike):
@@ -49,7 +53,7 @@ def login(driver: Chrome, username: str, password: str):
 
 
 def unicode_escape_url(url: str):
-    """
+    r"""
     Example: `https:\/\/scontent.fsgn5-9.fna.fbcdn.net\/o1\/v\/t2\/f2\/m366\/AQOwqM2sgT0_ryPOz\u00253D\u00253D` -> `https://scontent.fsgn5-9.fna.fbcdn.net/o1/v/t2/f2/m366/AQOwqM2sgT0_ryPO%3D%3D`
     """
     decoded_url = url.replace(r"\/", "/").encode().decode('unicode_escape')
@@ -65,5 +69,22 @@ def ordinal(n: int):
     return str(n) + suffix
 
 
+def sha256(string: str):
+    return hashlib.sha256(string.encode()).hexdigest()
+
+
 def to_bs4(element: WebElement):
     return bs4.BeautifulSoup(element.get_attribute("outerHTML"), "lxml")
+
+
+@contextmanager
+def tqdm_output(tqdm, write=sys.stderr.write):
+    def wrapper(message):
+        if message != '\n':
+            tqdm.clear()
+        write(message)
+        if '\n' in message:
+            tqdm.display()
+
+    with patch('sys.stdout', sys.stderr), patch('sys.stderr.write', wrapper):
+        yield tqdm
