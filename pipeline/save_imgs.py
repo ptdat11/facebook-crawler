@@ -63,7 +63,7 @@ class SaveImages(BaseStep):
 
             # Save DF as CSV
             os.makedirs(self.save_dir, exist_ok=True)
-            csv_path = os.path.join(self.save_dir, "imgs.csv")
+            csv_path = os.path.join(self.save_dir, f"{self.img_save_dir_name}.csv")
             result_df.to_csv(
                 csv_path,
                 index=False,
@@ -71,6 +71,6 @@ class SaveImages(BaseStep):
                 header=not os.path.exists(csv_path),
             )
 
-        df["has_images"] = df[self.img_url_col].notna() & (df[self.img_url_col] != "")
+        df["has_image"] = df[self.img_url_col].notna() & (df[self.img_url_col] != "")
         df.drop(columns=self.img_url_col, inplace=True)
         return df

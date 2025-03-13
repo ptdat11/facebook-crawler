@@ -1,15 +1,17 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.remote.remote_connection import LOGGER
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import NoSuchWindowException, WebDriverException
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 from selenium.webdriver import ActionChains
 
 from utils import Logger, Progress, LinkExtractor, Cookies
 from utils.colors import *
 from utils.utils import login, is_logged_in, ordinal, to_bs4
+from EC import more_items_loaded
 from pipeline import Pipeline
 
 import json
@@ -100,6 +102,9 @@ class BaseCrawler:
     def on_parse_error(self):
         # raise NotImplementedError("Crawler's on_parse_error method is not implemented")
         pass
+
+    def on_parse_complete(self, data):
+        return data
 
     def parse(self) -> Iterable[dict[str, Any]]:
         raise NotImplementedError("Crawler's parse method is not implemented")
@@ -312,6 +317,7 @@ class BaseCrawler:
         self.wait_DOM()
 
         for data in self.parse():
+            data = self.on_parse_complete(data)
             self.data_pipeline(data)
 
         self.close_all_new_tabs()
@@ -327,16 +333,37 @@ class BaseCrawler:
         except:
             self.logger.error(f"Cannot write \n{soup}\n to {dst}")
 
+    def delete_all_cookies(self):
+        self.chrome.execute(
+            "executeCdpCommand",
+            {"cmd": "Network.clearBrowserCookies", "params": {}}
+        )
+    
+    def clear_cache(self):
+        self.chrome.execute_cdp_cmd('Network.clearBrowserCache', {})
+    
     @contextmanager
-    def new_tab_no_cookies(self, url: str):
-        self.chrome.delete_all_cookies()
-        current_tab = self.chrome.current_window_handle
-        self.new_tab(url)
-        self.wait_DOM()
+    def new_chrome_no_cookies(self, url: str | None = None, quit_on_done: bool = True):
+        # head_src_locator = By.XPATH, "//head/*"
+        # WebDriverWait(self.chrome, timeout=5, poll_frequency=1.5).until_not(more_items_loaded(
+        #     head_src_locator,
+        #     current_count=len(self.chrome.find_elements(*head_src_locator))
+        # ))
+
+        # current_tab = self.chrome.current_window_handle
+        # self.chrome.switch_to.new_window("tab")
+        # self.delete_all_cookies()
+        # self.chrome.get(url)
+        new_chrome = webdriver.Chrome(
+            service=Service(self.chromedriver_path), options=self.driver_options
+        )
+        if url:
+            new_chrome.get(url)
+            self.logger.info(f"Opened new Chrome driver to {grey(url)}")
+            self.wait_DOM()
 
         try:
-            yield
+            yield new_chrome
         finally:
-            self.load_cookies()
-            self.chrome.close()
-            self.chrome.switch_to.window(current_tab)
+            if quit_on_done:
+                new_chrome.quit()

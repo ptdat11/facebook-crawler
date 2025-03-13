@@ -103,6 +103,7 @@ class Crawler(BaseCrawler):
         )
         self.max_ram_percentage = max_ram_percentage
         self.page_id = page_id
+        self.pagename = None
         self.language = language
         self.theme = theme
         self.set_pipeline_path_format(page_id=page_id)
@@ -120,6 +121,7 @@ class Crawler(BaseCrawler):
         )
 
     def parse(self):
+        self.pagename = self.chrome.find_element(By.XPATH, "//h1").text.strip()
         self.remove_header()
         n_scraped_posts = 0
         current_post_idx = 1
@@ -148,13 +150,14 @@ class Crawler(BaseCrawler):
                 self.post_collect_criteria.update_progress(self.chrome)
 
                 for post_div in self.get_loaded_posts(start=current_post_idx, stop=current_post_idx):
+                    post = None
                     scraped = False
                     self.scroll_into_view(post_div, sleep=1)
 
                     try:
                         # Check if reel
                         if to_bs4(post_div).find("a")["href"].startswith("/reel"):
-                            yield self.parse_reel(post_div)
+                            post = self.parse_reel(post_div)
                             scraped = True
 
                         # Check if update avatar
@@ -166,7 +169,6 @@ class Crawler(BaseCrawler):
                         # Normal post
                         else:
                             post = self.parse_post(post_div)
-                            yield post
                             scraped = True
                     except Exception as e:
                         exc_type, value, tb = sys.exc_info()
@@ -177,6 +179,10 @@ class Crawler(BaseCrawler):
                     finally:
                         current_post_idx += 1
 
+                    # Return result
+                    if post:
+                        yield post
+                    # Continue looping
                     n_scraped_posts += scraped
                     bar.set_postfix_str(f"# Scraped posts: {n_scraped_posts}")
                 self.sleep()
@@ -185,6 +191,10 @@ class Crawler(BaseCrawler):
             self.logger.info(
                 f"Post collect stopping criteria has met with threshold of {self.post_collect_criteria.threshold}"
             )
+
+    def on_parse_complete(self, data):
+        data["pagename"] = self.pagename
+        return data
 
     def remove_header(self):
         for rm_xpath in [
@@ -200,26 +210,25 @@ class Crawler(BaseCrawler):
         reel_id = re.search(r"reel/(\d+)", reel_a.get_attribute("href")).group(1)
         reel_url = f"https://www.facebook.com/{reel_id}"
 
-        with self.new_tab_no_cookies(reel_url):
+        with self.new_chrome_no_cookies(reel_url) as new_chrome:
             # Close login modal
-            close_modal_text = {"vi": "Đóng", "en": "Close"}
-            close_modal_btn = self.chrome.find_element(By.XPATH, f"//div[@aria-label='{close_modal_text[self.language]}']")
+            close_modal_btn = new_chrome.find_element(By.XPATH, f"//div[@aria-label='Close']")
             close_modal_btn.click()
 
             # Extract video
-            reel_video_urls = get_video_url_from_source(self.chrome.page_source)
+            reel_video_urls = get_video_url_from_source(new_chrome.page_source)
 
             # Show full caption
             see_more_text = {"vi": "Xem thêm", "en": "See more"}
-            if self.page_source_soup().find("div", attrs={"role": "button"}, string=see_more_text[self.language]):
-                see_more_btn = self.chrome.find_element(By.XPATH, f"//div[@role='button' and text()='{see_more_text[self.language]}']")
+            if to_bs4(new_chrome.find_element(By.XPATH, "//html")).find("div", attrs={"role": "button"}, string=see_more_text[self.language]):
+                see_more_btn = new_chrome.find_element(By.XPATH, f"//div[@role='button' and text()='{see_more_text[self.language]}']")
                 see_more_btn.click()
 
                 see_less_text = {"vi": "Ẩn bớt", "en": "See less"}
-                self.remove_element(self.chrome.find_element(By.XPATH, f"//div[text()='{see_less_text[self.language]}']"))
+                self.remove_element(new_chrome.find_element(By.XPATH, f"//div[text()='{see_less_text[self.language]}']"))
             
             # Extract caption
-            caption_div = self.chrome.find_element(By.XPATH, "//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")
+            caption_div = new_chrome.find_element(By.XPATH, "//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")
             caption = parse_text_from_element(caption_div)
 
         return {
@@ -316,7 +325,8 @@ class Crawler(BaseCrawler):
 
     def get_visual_content(self, visual_content_div: WebElement | None):
         visual_urls = {"img_urls": [], "video_urls": [], "video_audio_urls": []}
-        if visual_content_div is None:
+        unavail_text = {"vi": "Nội dung này hiện không hiển thị", "en": "This content isn't available at the moment"}
+        if visual_content_div is None or to_bs4(visual_content_div).find("span", string=unavail_text[self.language]):
             return visual_urls
         # Get post's visual soup (BeautifulSoup object)
         visual_soup = to_bs4(visual_content_div) if visual_content_div is not None else None
@@ -362,8 +372,8 @@ class Crawler(BaseCrawler):
             is_video = self.page_source_soup().find("img", {"data-visualcompletion": "media-vc-image"}) is None
             if is_video:
                 content_id = self.get_visual_content_id(self.chrome.current_url, "video")
-                with self.new_tab_no_cookies(f"https://www.facebook.com/{content_id}"):
-                    video_result = get_video_url_from_source(self.chrome.page_source)
+                with self.new_chrome_no_cookies(f"https://www.facebook.com/{content_id}") as new_chrome:
+                    video_result = get_video_url_from_source(new_chrome.page_source)
                     visual_urls["video_urls"].append(video_result["video_url"])
                     visual_urls["video_audio_urls"].append(video_result["audio_url"])
 
@@ -390,6 +400,7 @@ class Crawler(BaseCrawler):
                 self.exit_dialog()
                 break
 
+            self.clear_cache()
             iter += 1
         return visual_urls
 

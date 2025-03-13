@@ -22,7 +22,7 @@ CRAWLER_ARGUMENTS = {
         # post_collect_threshold=datetime(year=2024, month=9, day=1),
         post_collect_criterion="n_posts",
         post_collect_threshold=1000,
-        language="en",  # ["vi", "en"]
-        theme="light",  # ["light", "dark"]
+        language="vi",  # ["vi", "en"]
+        theme="dark",  # ["light", "dark"]
     )
 }

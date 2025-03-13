@@ -75,7 +75,7 @@ class SaveVideos(BaseStep):
 
             # Save DF as CSV
             os.makedirs(self.save_dir, exist_ok=True)
-            csv_path = os.path.join(self.save_dir, "vids.csv")
+            csv_path = os.path.join(self.save_dir, f"{self.vid_save_dir_name}.csv")
             result_df.to_csv(
                 csv_path,
                 index=False,
@@ -83,6 +83,6 @@ class SaveVideos(BaseStep):
                 header=not os.path.exists(csv_path),
             )
 
-        df["has_videos"] = df[self.vid_url_col].notna() & (df[self.vid_url_col] != "")
+        df["has_video"] = df[self.vid_url_col].notna() & (df[self.vid_url_col] != "")
         df.drop(columns=[self.vid_url_col, self.audio_url_col], inplace=True)
         return df
