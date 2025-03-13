@@ -149,7 +149,7 @@ class Crawler(BaseCrawler):
                 )
                 self.post_collect_criteria.update_progress(self.chrome)
 
-                for post_div in self.get_loaded_posts(start=current_post_idx, stop=current_post_idx):
+                for post_div in self.get_loaded_posts(start=1, stop=1):
                     post = None
                     scraped = False
                     self.scroll_into_view(post_div, sleep=1)
@@ -178,13 +178,16 @@ class Crawler(BaseCrawler):
                         continue
                     finally:
                         current_post_idx += 1
+                        self.exit_dialog()
+                        self.remove_element(post_div)
+                        self.clean_memory()
 
                     # Return result
                     if post:
                         yield post
                     # Continue looping
                     n_scraped_posts += scraped
-                    bar.set_postfix_str(f"# Scraped posts: {n_scraped_posts}")
+                    bar.set_postfix_str(f"Scraped: {n_scraped_posts}")
                 self.sleep()
 
         if met:
@@ -330,17 +333,36 @@ class Crawler(BaseCrawler):
             return visual_urls
         # Get post's visual soup (BeautifulSoup object)
         visual_soup = to_bs4(visual_content_div) if visual_content_div is not None else None
+        # Content is shared reel
+        first_is_reel = (
+            visual_soup.find("a")["href"].startswith("/reel")
+            if visual_soup else False
+        )
+        if first_is_reel:
+            reel_id = re.search(r"reel/(\d+)", visual_soup.find("a")["href"]).group(1)
+            reel_url = f"https://www.facebook.com/{reel_id}"
+
+            with self.new_chrome_no_cookies(reel_url) as new_chrome:
+                # Close login modal
+                close_modal_btn = new_chrome.find_element(By.XPATH, f"//div[@aria-label='Close']")
+                close_modal_btn.click()
+
+                # Extract video
+                video_result = get_video_url_from_source(new_chrome.page_source)
+                visual_urls["video_urls"].append(video_result["video_url"])
+                visual_urls["video_audio_urls"].append(video_result["audio_url"])
+            
+            return visual_urls
+
         # Check first content's type
         first_is_image = (
             visual_soup.find("img") is not None
             and "data-visualcompletion" not in visual_soup.find("img").parent.attrs
-            if visual_soup is not None
-            else False
+            if visual_soup else False
         )
         first_is_video = (
             visual_soup.find("div", {"role": "presentation"}) is not None
-            if visual_soup is not None
-            else False
+            if visual_soup else False
         )
 
         first_content = visual_content_div.find_element(By.XPATH, ".//img")
@@ -400,14 +422,14 @@ class Crawler(BaseCrawler):
                 self.exit_dialog()
                 break
 
-            self.clear_cache()
             iter += 1
         return visual_urls
 
     def exit_dialog(self):
-        close_text = {"vi": "Đóng", "en": "Close"}
-        close_btn = self.chrome.find_element(By.XPATH, f"//div[@aria-label='{close_text[self.language]}']")
-        self.action.click(close_btn).pause(0.2).perform()
+        if self.page_source_soup().find("div", {"role": "dialog"}):
+            close_text = {"vi": "Đóng", "en": "Close"}
+            close_btn = self.chrome.find_element(By.XPATH, f"//div[@aria-label='{close_text[self.language]}']")
+            self.action.click(close_btn).pause(0.2).perform()
 
     def get_post_id_from_dialog(self):
         post_id = self.chrome.find_element(By.XPATH, "(//div[@role='dialog'])[last()]//div[@class='xu06os2 x1ok221b'][last()]//a")

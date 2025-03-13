@@ -65,7 +65,7 @@ def parse_args():
     parser.add_argument(
         "--error-screenshot-dir",
         "-erdir",
-        default="./error-screenshots/",
+        default=None,
         help="Error screenshot saving directory",
         dest="error_screenshot_dir",
     )
@@ -95,6 +95,7 @@ if __name__ == "__main__":
         user=args.user,
         secrets_file=args.secrets_json,
         cookies_save_dir=args.cookies_dir,
+        error_screenshot_dir=args.error_screenshot_dir,
         headless=args.headless,
         sleep_weibull_lambda=args.sleep_weibull_lambda,
         max_loading_wait=args.max_loading_wait,

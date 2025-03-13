@@ -15,9 +15,12 @@ from EC import more_items_loaded
 from pipeline import Pipeline
 
 import json
+import os
 import sys
 import time
 import logging
+from copy import deepcopy
+from datetime import datetime
 from bs4 import BeautifulSoup
 from html import unescape
 from os.path import join
@@ -52,6 +55,7 @@ class BaseCrawler:
         user: str,
         secrets_file: str,
         cookies_save_dir: str,
+        error_screenshot_dir: str | None = None,
         headless: bool = True,
         sleep_weibull_lambda: float = 10.0,
         max_loading_wait: float = 90,
@@ -68,6 +72,7 @@ class BaseCrawler:
         self.user = user
         self.secret_file = secrets_file
         self.cookies = Cookies(user=user, save_dir=cookies_save_dir)
+        self.error_screenshot_dir = error_screenshot_dir
 
         self.headless = headless
         self.sleep_weibull_lambda = sleep_weibull_lambda
@@ -84,12 +89,16 @@ class BaseCrawler:
         ## Disable notifications
         self.driver_options.add_argument("--disable-notifications")
         self.driver_options.add_argument("disable-infobars")
+        self.driver_options.add_argument("--disable-cache")
         ## Enable headless, or else detach mode
         if headless:
             self.driver_options.add_argument("--headless")
         else:
             self.driver_options.add_experimental_option("detach", True)
             self.driver_options.add_argument("--ignore-certificate-errors")
+        
+        self.no_cookie_options = deepcopy(self.driver_options)
+        # self.driver_options.add_argument("--incognito")
 
     def on_start(self):
         # raise NotImplementedError("Crawler's on_start method is not implemented")
@@ -148,6 +157,8 @@ class BaseCrawler:
         self.logger.info(f"Driver started")
         self.action = ActionChains(self.chrome)
         self.wait = WebDriverWait(self.chrome, self.max_loading_wait)
+
+        self.no_cookie_chrome = None
 
     def save_cookies(self):
         self.cookies.save(self.chrome.get_cookies())
@@ -239,7 +250,7 @@ class BaseCrawler:
             f"Selectively enqueuing {len(new_parse_urls)} new parsing URLs"
         )
         self.progress.selectively_enqueue_list(new_parse_urls)
-
+    
     def start(self, start_url: str):
         self.start_driver()
         self.on_start()
@@ -270,6 +281,13 @@ class BaseCrawler:
                 err_trial = 0
                 self.sleep()
             except:
+                # Save driver's screen at the erroneous moment
+                if self.error_screenshot_dir:
+                    os.makedirs(self.error_screenshot_dir, exist_ok=True)
+                    self.chrome.save_screenshot(
+                        os.path.join(self.error_screenshot_dir, f"{datetime.now()}.png")
+                    )
+
                 err_trial += 1
                 # Logging out error
                 exc_type, value, tb = sys.exc_info()
@@ -339,31 +357,41 @@ class BaseCrawler:
             {"cmd": "Network.clearBrowserCookies", "params": {}}
         )
     
-    def clear_cache(self):
+    def clean_memory(self):
         self.chrome.execute_cdp_cmd('Network.clearBrowserCache', {})
+        self.chrome.execute_script("window.localStorage.clear();")
+        self.chrome.execute_script("window.sessionStorage.clear();")
+        self.chrome.execute_script('indexedDB.databases().then(dbs => dbs.forEach(db => indexedDB.deleteDatabase(db.name)));')
+        self.chrome.execute_script("window.gc && window.gc();")
     
     @contextmanager
-    def new_chrome_no_cookies(self, url: str | None = None, quit_on_done: bool = True):
-        # head_src_locator = By.XPATH, "//head/*"
-        # WebDriverWait(self.chrome, timeout=5, poll_frequency=1.5).until_not(more_items_loaded(
-        #     head_src_locator,
-        #     current_count=len(self.chrome.find_elements(*head_src_locator))
-        # ))
-
+    def new_chrome_no_cookies(self, url: str | None = None, quit_on_done: bool = False):
         # current_tab = self.chrome.current_window_handle
         # self.chrome.switch_to.new_window("tab")
         # self.delete_all_cookies()
         # self.chrome.get(url)
-        new_chrome = webdriver.Chrome(
-            service=Service(self.chromedriver_path), options=self.driver_options
-        )
+        if not self.no_cookie_chrome:
+            self.no_cookie_chrome = webdriver.Chrome(
+                service=Service(self.chromedriver_path), options=self.no_cookie_options
+            )
         if url:
-            new_chrome.get(url)
+            self.no_cookie_chrome.get(url)
             self.logger.info(f"Opened new Chrome driver to {grey(url)}")
             self.wait_DOM()
 
         try:
-            yield new_chrome
+            yield self.no_cookie_chrome
+            self.no_cookie_chrome.execute(
+                "executeCdpCommand",
+                {"cmd": "Network.clearBrowserCookies", "params": {}}
+            )
+            self.no_cookie_chrome.execute_cdp_cmd('Network.clearBrowserCache', {})
+            self.no_cookie_chrome.execute_script("window.localStorage.clear();")
+            self.no_cookie_chrome.execute_script("window.sessionStorage.clear();")
+            self.no_cookie_chrome.execute_script('indexedDB.databases().then(dbs => dbs.forEach(db => indexedDB.deleteDatabase(db.name)));')
+            self.no_cookie_chrome.execute_script("window.gc && window.gc();")
+            self.no_cookie_chrome.get("about:blank")
         finally:
             if quit_on_done:
-                new_chrome.quit()
+                self.no_cookie_chrome.quit()
+                self.no_cookie_chrome = None

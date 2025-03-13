@@ -6,4 +6,4 @@ Note, the driver's version has to be the same as your Chrome's in your machine. 
 
 1. Click the **...** menu on top right corner, choose **Settings**.
 2. Choose **About Chrome** in the left sidebar.
-3. You shall find *Version ...*.
+3. You shall find *'Version ...'*.
