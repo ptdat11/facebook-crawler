@@ -12,7 +12,7 @@ from pathlib import Path
 from ..base_crawler import BaseCrawler
 from EC import more_items_loaded
 from utils.parsing import parse_post_date, parse_text_from_element, get_video_url_from_source
-from utils.utils import to_bs4, ordinal, sha256, tqdm_output
+from utils.utils import to_bs4, to_etree, ordinal, sha256, tqdm_output
 from utils.colors import *
 
 from urllib.parse import urlparse, parse_qs
@@ -89,7 +89,7 @@ class Crawler(BaseCrawler):
         post_collect_criterion: Literal[
             "elapsed_minutes", "n_posts", "post_time"
         ] = "n_posts",
-        max_ram_percentage: float = 0.8,
+        max_ram_percentage: float = 0.9,
         language: Literal["vi", "en"] = "vi",
         theme: Literal["light", "dark"] = "light",
         *args,
@@ -145,7 +145,8 @@ class Crawler(BaseCrawler):
                     more_items_loaded(
                         posts_locator=(By.XPATH, Crawler.posts_xpath),
                         current_count=len(self.get_loaded_posts()),
-                    )
+                    ),
+                    message="No more post loaded"
                 )
                 self.post_collect_criteria.update_progress(self.chrome)
 
@@ -179,7 +180,7 @@ class Crawler(BaseCrawler):
                     finally:
                         current_post_idx += 1
                         self.exit_dialog()
-                        self.remove_element(post_div)
+                        self.remove_element(post_div.find_element(By.XPATH, "./../.."))
                         self.clean_memory()
 
                     # Return result
@@ -231,8 +232,11 @@ class Crawler(BaseCrawler):
                 self.remove_element(new_chrome.find_element(By.XPATH, f"//div[text()='{see_less_text[self.language]}']"))
             
             # Extract caption
-            caption_div = new_chrome.find_element(By.XPATH, "//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")
-            caption = parse_text_from_element(caption_div)
+            if len(to_etree(new_chrome.find_element(By.XPATH, "body")).xpath("//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")) > 0:
+                caption_div = new_chrome.find_element(By.XPATH, "//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")
+                caption = parse_text_from_element(caption_div)
+            else:
+                caption = ""
 
         return {
             "post_id": sha256(reel_id),
@@ -266,7 +270,7 @@ class Crawler(BaseCrawler):
             if content.text != trans_text[self.language]:
                 num_content_modalities += 1
 
-        text_content_div = content_div.find_elements(By.XPATH, "./descendant::div[@data-ad-comet-preview='message']")
+        text_content_div = content_div.find_elements(By.XPATH, "./descendant::div[@data-ad-rendering-role='story_message']")
         text_content_div = text_content_div[0] if len(text_content_div) > 0 else None
 
         if (
@@ -328,11 +332,14 @@ class Crawler(BaseCrawler):
 
     def get_visual_content(self, visual_content_div: WebElement | None):
         visual_urls = {"img_urls": [], "video_urls": [], "video_audio_urls": []}
+
         unavail_text = {"vi": "Nội dung này hiện không hiển thị", "en": "This content isn't available at the moment"}
         if visual_content_div is None or to_bs4(visual_content_div).find("span", string=unavail_text[self.language]):
             return visual_urls
+        
         # Get post's visual soup (BeautifulSoup object)
         visual_soup = to_bs4(visual_content_div) if visual_content_div is not None else None
+
         # Content is shared reel
         first_is_reel = (
             visual_soup.find("a")["href"].startswith("/reel")

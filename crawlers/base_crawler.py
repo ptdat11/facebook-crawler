@@ -98,7 +98,7 @@ class BaseCrawler:
             self.driver_options.add_argument("--ignore-certificate-errors")
         
         self.no_cookie_options = deepcopy(self.driver_options)
-        # self.driver_options.add_argument("--incognito")
+        self.driver_options.add_argument("--incognito")
 
     def on_start(self):
         # raise NotImplementedError("Crawler's on_start method is not implemented")
@@ -119,7 +119,8 @@ class BaseCrawler:
         raise NotImplementedError("Crawler's parse method is not implemented")
 
     def new_tab(self, url: str):
-        self.chrome.switch_to.new_window("tab")
+        self.chrome.execute_script("window.open('about:blank', '_blank');")
+        self.chrome.switch_to.window(self.chrome.window_handles[-1])
         self.chrome.get(url)
         self.logger.info(f"Opened new tab to {grey(url)}")
 
@@ -338,7 +339,7 @@ class BaseCrawler:
             data = self.on_parse_complete(data)
             self.data_pipeline(data)
 
-        self.close_all_new_tabs()
+        # self.close_all_new_tabs()
 
     def page_source_soup(self):
         return BeautifulSoup(self.chrome.page_source, "lxml")
@@ -381,6 +382,7 @@ class BaseCrawler:
 
         try:
             yield self.no_cookie_chrome
+        finally:
             self.no_cookie_chrome.execute(
                 "executeCdpCommand",
                 {"cmd": "Network.clearBrowserCookies", "params": {}}
@@ -391,7 +393,7 @@ class BaseCrawler:
             self.no_cookie_chrome.execute_script('indexedDB.databases().then(dbs => dbs.forEach(db => indexedDB.deleteDatabase(db.name)));')
             self.no_cookie_chrome.execute_script("window.gc && window.gc();")
             self.no_cookie_chrome.get("about:blank")
-        finally:
+            
             if quit_on_done:
                 self.no_cookie_chrome.quit()
                 self.no_cookie_chrome = None

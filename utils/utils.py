@@ -12,6 +12,7 @@ import hashlib
 import sys
 from unittest.mock import patch
 from contextlib import contextmanager
+from lxml import etree
 
 
 class FormatablePath(PathLike):
@@ -76,6 +77,8 @@ def sha256(string: str):
 def to_bs4(element: WebElement):
     return bs4.BeautifulSoup(element.get_attribute("outerHTML"), "lxml")
 
+def to_etree(element: WebElement) -> etree.Element:
+    return etree.HTML(element.get_attribute("outerHTML"))
 
 @contextmanager
 def tqdm_output(tqdm, write=sys.stderr.write):
