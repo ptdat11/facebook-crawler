@@ -10,6 +10,7 @@ import bs4
 import time
 import hashlib
 import sys
+from html import unescape
 from unittest.mock import patch
 from contextlib import contextmanager
 from lxml import etree
@@ -79,6 +80,14 @@ def to_bs4(element: WebElement):
 
 def to_etree(element: WebElement) -> etree.Element:
     return etree.HTML(element.get_attribute("outerHTML"))
+
+def write_element(self, dst: str, element: WebElement):
+        soup = to_bs4(element)
+        try:
+            with open(dst, "w") as f:
+                f.write(unescape(soup.__str__()))
+        except:
+            print(f"Cannot write \n{soup}\n to {dst}")
 
 @contextmanager
 def tqdm_output(tqdm, write=sys.stderr.write):

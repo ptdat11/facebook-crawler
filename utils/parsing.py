@@ -2,8 +2,9 @@ from selenium.webdriver.remote.webelement import WebElement
 import re
 from datetime import datetime
 
+from bs4 import BeautifulSoup
 from typing import Literal
-from utils.utils import unicode_escape_url
+from utils.utils import unicode_escape_url, write_element
 
 en_month_map = {
     "january": 1,
@@ -49,11 +50,32 @@ def parse_text_from_element(text_element: WebElement):
 
 
 def get_video_url_from_source(source: str):
+    # try:
+    h2 = BeautifulSoup(source, "lxml").find("h2")
+    if h2 and h2.text == "This content isn't available at the moment":
+        return {
+            "video_url": "",
+            "audio_url": ""
+        }
+
     video_url = re.search(r'"base_url":"([^"]+)"', source).group(1)
     video_url = unicode_escape_url(video_url)
-    audio_url = re.search(r'"audio\\/mp4","codecs":"[^"]+","base_url":"([^"]+)"', source).group(1)
-    audio_url = unicode_escape_url(audio_url)
+    audio_url = re.search(r'"audio\\/mp4","codecs":"[^"]+","base_url":"([^"]+)"', source)
+    if audio_url:
+        audio_url = audio_url.group(1)
+        audio_url = unicode_escape_url(audio_url)
+    else:
+        audio_url = "<not_found>"
+
     return {
         "video_url": video_url,
         "audio_url": audio_url
     }
+    # except:
+    #     print("ERROR")
+    #     with open("index.html", "w") as f:
+    #         f.write(source)
+    #     return {
+    #         "video_url": "",
+    #         "audio_url": ""
+    #     }

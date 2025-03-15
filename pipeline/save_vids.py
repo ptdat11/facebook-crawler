@@ -33,7 +33,6 @@ class SaveVideos(BaseStep):
 
         vid_dir = join(self.save_dir, self.vid_save_dir_name, vid_name)
         vid_path = join(vid_dir, "video.mp4")
-        audio_path = join(vid_dir, "audio.mp3")
 
         if not os.path.exists(vid_dir):
             os.makedirs(vid_dir, exist_ok=True)
@@ -43,10 +42,12 @@ class SaveVideos(BaseStep):
             with open(vid_path, "wb") as f:
                 f.write(vid_data)
         
-        if not os.path.exists(audio_path):
-            audio_data = requests.get(audio_url).content
-            with open(audio_path, "wb") as f:
-                f.write(audio_data)
+        if audio_url != "<not_found>":
+            audio_path = join(vid_dir, "audio.mp3")
+            if not os.path.exists(audio_path):
+                audio_data = requests.get(audio_url).content
+                with open(audio_path, "wb") as f:
+                    f.write(audio_data)
 
         return vid_name
 
@@ -57,18 +58,20 @@ class SaveVideos(BaseStep):
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir, exist_ok=True)
 
-        # Create new DF for image data
+        # Create new DF for video data
         copied_cols = [self.id_col, self.vid_url_col, self.audio_url_col] if self.id_col is not None \
                     else [self.vid_url_col, self.audio_url_col]
         result_df = df[copied_cols].map(lambda v: {"": None}.get(v, v)).dropna(subset=[self.vid_url_col, self.audio_url_col])
         if not result_df.empty:
             result_df[[self.vid_url_col, self.audio_url_col]] = result_df[[self.vid_url_col, self.audio_url_col]].map(str.split)
             result_df = result_df.explode([self.vid_url_col, self.audio_url_col], ignore_index=True)
-            # Download images on the fly
+            # Download videos on the fly
             result_df["name"] = [
                 self.save_vid(vid_url, audio_url) 
                 for vid_url, audio_url in result_df[[self.vid_url_col, self.audio_url_col]].values
             ]
+            result_df[self.audio_url_col] = result_df[self.audio_url_col].map(lambda url: {"<not_found>": None}.get(url, url))
+            
             if self.id_col is None:
                 result_df["id"] = range(self.generated_id, self.generated_id + result_df.shape[0])
                 self.generated_id += result_df.shape[0]

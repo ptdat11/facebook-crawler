@@ -22,7 +22,6 @@ import logging
 from copy import deepcopy
 from datetime import datetime
 from bs4 import BeautifulSoup
-from html import unescape
 from os.path import join
 from urllib.parse import urlparse
 from traceback import format_exc
@@ -344,14 +343,6 @@ class BaseCrawler:
     def page_source_soup(self):
         return BeautifulSoup(self.chrome.page_source, "lxml")
 
-    def write_element(self, dst: str, element: WebElement):
-        soup = to_bs4(element)
-        try:
-            with open(dst, "w") as f:
-                f.write(unescape(soup.__str__()))
-        except:
-            self.logger.error(f"Cannot write \n{soup}\n to {dst}")
-
     def delete_all_cookies(self):
         self.chrome.execute(
             "executeCdpCommand",
@@ -379,6 +370,7 @@ class BaseCrawler:
             self.no_cookie_chrome.get(url)
             self.logger.info(f"Opened new Chrome driver to {grey(url)}")
             self.wait_DOM()
+            self.wait.until(EC.presence_of_element_located((By.XPATH, "html")))
 
         try:
             yield self.no_cookie_chrome

@@ -7,6 +7,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import re
 import traceback
 import sys
+import time
 import bs4
 from pathlib import Path
 from ..base_crawler import BaseCrawler
@@ -89,7 +90,7 @@ class Crawler(BaseCrawler):
         post_collect_criterion: Literal[
             "elapsed_minutes", "n_posts", "post_time"
         ] = "n_posts",
-        max_ram_percentage: float = 0.9,
+        max_ram_percentage: float = 0.95,
         language: Literal["vi", "en"] = "vi",
         theme: Literal["light", "dark"] = "light",
         *args,
@@ -179,6 +180,7 @@ class Crawler(BaseCrawler):
                         continue
                     finally:
                         current_post_idx += 1
+                        time.sleep(1)
                         self.exit_dialog()
                         self.remove_element(post_div.find_element(By.XPATH, "./../.."))
                         self.clean_memory()
@@ -232,7 +234,7 @@ class Crawler(BaseCrawler):
                 self.remove_element(new_chrome.find_element(By.XPATH, f"//div[text()='{see_less_text[self.language]}']"))
             
             # Extract caption
-            if len(to_etree(new_chrome.find_element(By.XPATH, "body")).xpath("//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")) > 0:
+            if len(to_etree(new_chrome.find_element(By.XPATH, "//body")).xpath("//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")) > 0:
                 caption_div = new_chrome.find_element(By.XPATH, "//div[starts-with(@class, 'xyamay9 x1pi30zi x1swvt13 xjkvuk6')]/span/div")
                 caption = parse_text_from_element(caption_div)
             else:
@@ -359,6 +361,17 @@ class Crawler(BaseCrawler):
                 visual_urls["video_urls"].append(video_result["video_url"])
                 visual_urls["video_audio_urls"].append(video_result["audio_url"])
             
+            return visual_urls
+        
+        # Content is GIF
+        first_is_gif = visual_soup.find("div", {"aria-label": re.compile(r".*GIF.*")}) is not None
+        if first_is_gif:
+            post_link_a = visual_content_div.find_element(By.XPATH, "./../../div[2]/div/div[2]/div/div[2]//a")
+            post_id = re.search(r"videos/(\d+)", post_link_a.get_attribute("href")).group(1)
+            with self.new_chrome_no_cookies(f"https://www.facebook.com/{post_id}") as new_chrome:
+                video_result = get_video_url_from_source(new_chrome.page_source)
+                visual_urls["video_urls"].append(video_result["video_url"])
+                visual_urls["video_audio_urls"].append(video_result["audio_url"])
             return visual_urls
 
         # Check first content's type

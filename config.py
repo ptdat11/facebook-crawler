@@ -17,12 +17,13 @@ PARSE_LINK_EXTRACTOR = LinkExtractor(
 
 CRAWLER_ARGUMENTS = {
     "page_crawler": dict(
-        page_id="bvquoctethaodien",
+        page_id="naman.benhvienthammy",
         # post_collect_criterion="post_time",  # ["elapsed_minutes", "n_posts", "post_time"]
         # post_collect_threshold=datetime(year=2024, month=9, day=1),
         post_collect_criterion="n_posts",
         post_collect_threshold=1000,
         language="vi",  # ["vi", "en"]
         theme="dark",  # ["light", "dark"]
+        max_ram_percentage=0.95, # Should be at least 0.9 for Facebook to autoclean its memory
     )
 }
